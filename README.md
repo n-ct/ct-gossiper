@@ -15,7 +15,7 @@ in Term 3 type
 
 Now all 3 servers are running
 
-In Term 4 type
+In Term 4 navagate to /testing and type
   > test.exe 1000 0 abc
 
 his will make a post request to http://localhost:1000/gossip with a dummy CTData struct with a timestamp of 0, and a blob of [97, 98, 99]
