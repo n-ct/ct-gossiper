@@ -2,23 +2,25 @@
 
 EXAMPLE OF HOW TO USE -
 
+the gossip server uses GLOG so check here -> https://godoc.org/github.com/golang/glog for the GLOG options
+
 open 4 terminals (Term 1 - Term 4)
 in Term 1 type
-  > server.exe 1000 2000 3000 
+  > server.exe -log_dir=./log 1000 2000 3000 
 
 This will create a gossip server at http://localhost:1000, that will gossip to servers at http://localhost:2000, and http://localhost:3000
 in Term 2 type
-  > server.exe 2000 1000 3000 
+  > server.exe -log_dir=./log 2000 1000 3000 
 
 in Term 3 type
-  > server.exe 3000 1000 2000 
+  > server.exe -log_dir=./log 3000 1000 2000 
 
 Now all 3 servers are running
 
 In Term 4 navagate to /testing and type
-  > test.exe 1000 0 abc
+  > test.exe -log_dir=./log 1000 0 abc
 
-his will make a post request to http://localhost:1000/gossip with a dummy CTData struct with a timestamp of 0, and a blob of [97, 98, 99]
+This will make a post request to http://localhost:1000/gossip with a dummy CTData struct with a timestamp of 0, and a blob of [97, 98, 99]
 
 All three servers now know about is CTData struct
 
