@@ -35,7 +35,7 @@ func main() {
 	//Setting flags
 	var peersNumber = flag.Int("n", 0, "Number of gossipers in the experiment. Must be more than 0");
   var ip = flag.Int("ip", 0, "Local ip of gossiper server. Must be more than 1.");
-  var port = flag.String("port", "1000", "Server port.");
+  var port = flag.String("port", "2000", "Server port.");
 
 	flag.Parse(); //read the cmd line flags
 	defer glog.Flush(); //if the program ends unexpectedly make sure all debug info is printed
@@ -49,7 +49,7 @@ func main() {
 		if(i == *ip){
 			continue;
 		}
-		peers = append(peers, fmt.Sprintf("http://10.1.10.%d:%v/ct/v1", i, *port)); //fill array of peers with adresses
+		peers = append(peers, fmt.Sprintf("http://10.1.1.%d:%v/ct/v1", i, *port)); //fill array of peers with adresses
 		glog.Infoln(peers[len(peers)-1]); //for debug
 	}
 
