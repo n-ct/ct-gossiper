@@ -16,7 +16,6 @@ import (
 	"flag"
 )
 
-var port string;
 var peers []string;
 
 var messages map[string]ctd.CTData
@@ -33,28 +32,34 @@ func main() {
 		os.Exit(1);
 	}(); //when channel is notified print debug info, make sure all logs get written and exit
 
+	//Setting flags
+	var peersNumber = flag.Int("n", 0, "Number of gossipers in the experiment. Must be more than 0");
+  var ip = flag.Int("ip", 0, "Local ip of gossiper server. Must be more than 1.");
+  var port = flag.String("port", "1000", "Server port.");
+
 	flag.Parse(); //read the cmd line flags
 	defer glog.Flush(); //if the program ends unexpectedly make sure all debug info is printed
 
-	args := flag.Args(); //get cmd line args
+	if(*peersNumber < 1 || *ip < 2){
+    fmt.Println("ip and n flags are require.");
+    return;
+  }
 
-	if len(args) < 2 {
-		fmt.Println("use: gossipServer <FLAGS> <MY-PORT> <PEER-1-PORT> ... <PEER-n-PORT>"); //in case I forget how to run my program
-		return;
-	}
-	port := args[0]; //port is 1st arg
-	for i:=1; i < len(args); i++ {
-		peers = append(peers, fmt.Sprintf("http://localhost:%v/ct/v1", args[i])); //fill array of peers with adresses
-		glog.Infoln(peers[i-1]); //for debug
+	for i:=2; i <= *peersNumber+1; i++ {
+		if(i == *ip){
+			continue;
+		}
+		peers = append(peers, fmt.Sprintf("http://10.1.10.%d:%v/ct/v1", i, *port)); //fill array of peers with adresses
+		glog.Infoln(peers[len(peers)-1]); //for debug
 	}
 
 	messages = make(map[string]ctd.CTData);
 
 	http.HandleFunc("/ct/v1/gossip", GossipHandler); // call GossipHandler on post to /gossip
 
-	glog.Infof("Starting server on %v\n", port); // for debug
+	glog.Infof("Starting server on %v\n", *port); // for debug
 
-	err := http.ListenAndServe(fmt.Sprintf(":%v", port), nil); // start server
+	err := http.ListenAndServe(fmt.Sprintf(":%v", *port), nil); // start server
 	if err != nil {
 		fmt.Errorf("err: %v", err);
 	}
