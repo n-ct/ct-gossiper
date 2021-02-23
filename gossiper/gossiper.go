@@ -11,18 +11,23 @@ import (
 	"io/ioutil"
 	"strings"
 	"flag"
+
 	"github.com/golang/glog"
 	cto "ct-gossiper"
+	mtr "github.com/n-ct/ct-monitor"
+	mtrList "github.com/n-ct/ct-monitor/entitylist"
 	mtrUtils "github.com/n-ct/ct-monitor/utils"
-	mtr "github.com/n-ct/ct-monitor/entitylist"
 )
 
-var peers []*mtr.Monitor;
+const(
+	GossipPath = "/ct/v1/gossip"
+)
 
+var peers []*mtrList.MonitorInfo;
 var messages cto.MessagesMap; //[TypeID][subjectOrSigner][Timestamp][Version]
 var alertsMap cto.MessagesMap;//[Subject][Signer][Timestamp][Version]
 var port string;
-var allMonitors *mtr.MonitorsList;
+var allMonitors *mtrList.MonitorList;
 
 
 func main() {
@@ -55,7 +60,7 @@ func main() {
 
 	gossiperSetup(*configFilename, *monitorsFilename);
 
-	http.HandleFunc("/ct/v1/gossip", GossipHandler); // call GossipHandler on post to /gossip
+	http.HandleFunc(GossipPath, GossipHandler); // call GossipHandler on post to /gossip
 
 	glog.Infof("Starting server on %v\n", port);
 
@@ -68,7 +73,7 @@ func main() {
 // GossipHandler is called on a post request to /ct/v1/gossip.
 // It handles the logic of gossip within a network system
 func GossipHandler(w http.ResponseWriter, req *http.Request){
-	data := cto.CTObject{};
+	data := mtr.CTObject{};
 	err := json.NewDecoder(req.Body).Decode(&data); // fill that struct using the JSON encoded struct send via the post
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest) // if there is an eror report and abort
@@ -84,20 +89,20 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 		workingMap = messages;
 	}
 
-	glog.Infof("CTObject recived from source: %s\n\n", data.ToDebugString()); //print contents of message (for debugging)
+	glog.Infof("CTObject recived from source: %s\n\n", cto.ToDebugString(data)); //print contents of message (for debugging)
 	if message, ok := workingMap[identifier.First][identifier.Second][identifier.Third][identifier.Fourth]; ok { // if I have the message already check for conflict
-		if bytes.Compare(data.Hash, message.Hash)==0 {
+		if bytes.Compare(data.Digest, message.Digest)==0 {
 			http.Error(w, "Duplicate item\n", http.StatusBadRequest); // if no conflic send back "duplicate item", and bad request status code to sender
 		} else {
 			glog.Infof("Misbehavior detected\n\n"); // if conflict send a PoM to all peers
-			PoM := cto.NewCTObject("PoM", 0, []byte{0,1,2,3}, ""); //new dummy Proof of misbehavior
-			addEntry(messages, *PoM, PoM.Identifier()); // store PoM
-
-			//gossip new PoM to all peers
-			for _, peer := range peers{
-				glog.Infof("Gossiping PoM to peer: %v\n", peer.Id);
-				post(fmt.Sprintf("%v/ct/v1/gossip", peer.Gossip), PoM, false);
-			}
+			// PoM := cto.NewCTObject("PoM", 0, []byte{0,1,2,3}, ""); //new dummy Proof of misbehavior
+			// addEntry(messages, *PoM, PoM.Identifier()); // store PoM
+			//
+			// //gossip new PoM to all peers
+			// for _, peer := range peers{
+			// 	glog.Infof("Gossiping PoM to peer: %v\n", peer.Id);
+			// 	post(fmt.Sprintf("%v/ct/v1/gossip", peer.Gossip), PoM, false);
+			// }
 		}
 	}else{
 		if data.Blob == nil{ //If the message does not contain the blob
@@ -107,8 +112,8 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 			addEntry(workingMap, data, identifier);// if message is new add it to messages map
 
 			for _, peer := range peers{
-				glog.Infof("Gossiping new info to peer: %v\n", peer.Id);
-				post(fmt.Sprintf("%v/ct/v1/gossip", peer.Gossip), &data, false);
+				glog.Infof("Gossiping new info to peer: %v\n", peer.MonitorID);
+				post(mtrUtils.CreateRequestURL(peer.GossiperURL, GossipPath), &data, false);
 			}
 		}
 	}
@@ -116,12 +121,12 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 
 // post takes in an address as a string and a pointer to a CTObject struct
 // and makes a post request to that address with the JSON encoded version of that struct
-func post(address string, data *cto.CTObject, withBlob bool){
-	var toSend *cto.CTObject;
+func post(address string, data *mtr.CTObject, withBlob bool){
+	var toSend *mtr.CTObject;
 	if withBlob {
 		toSend = data;
 	} else {
-		toSend = data.CopyWithoutBlob();
+		toSend = cto.CopyWithoutBlob(data);
 	}
 	var jsonStr, _ = json.Marshal(toSend);
 
@@ -151,15 +156,15 @@ func post(address string, data *cto.CTObject, withBlob bool){
 }
 
 //addEntry adds a new entry to the selected map using the data identifier as keys
-func addEntry(dataMap cto.MessagesMap, data cto.CTObject, identifier cto.ObjectIdentifier){
+func addEntry(dataMap cto.MessagesMap, data mtr.CTObject, identifier mtr.ObjectIdentifier){
 	if _, ok := dataMap[identifier.First]; !ok {
-		dataMap[identifier.First] = make(map[string]map[uint64]map[string] *cto.CTObject);
+		dataMap[identifier.First] = make(map[string]map[uint64]map[string] *mtr.CTObject);
 	}
 	if _, ok := dataMap[identifier.First][identifier.Second]; !ok {
-		dataMap[identifier.First][identifier.Second] = make(map[uint64]map[string] *cto.CTObject);
+		dataMap[identifier.First][identifier.Second] = make(map[uint64]map[string] *mtr.CTObject);
 	}
 	if _, ok := dataMap[identifier.First][identifier.Second][identifier.Third]; !ok {
-		dataMap[identifier.First][identifier.Second][identifier.Third] = make(map[string] *cto.CTObject);
+		dataMap[identifier.First][identifier.Second][identifier.Third] = make(map[string] *mtr.CTObject);
 	}
 	dataMap[identifier.First][identifier.Second][identifier.Third][identifier.Fourth] = &data;
 }
@@ -169,15 +174,15 @@ func gossiperSetup(configFilename string, monitorsFilename string){
 	gossipConfig := cto.NewGossipConfig(configFilename);
 
 	getPeers(gossipConfig, monitorsFilename);
-	port = strings.Split(allMonitors.FindMonitorByID(gossipConfig.Monitor_id).Gossip, ":")[2];
+	port = strings.Split(allMonitors.FindMonitorByMonitorID(gossipConfig.Monitor_id).GossiperURL, ":")[2];
 
 }
 
 //getPeers get all monitors from file and populates the peers with the respective monitors
-func getPeers(gossipConfig cto.GossipConfig, monitorsFilename string)  {
-	allMonitors = mtr.NewMonitorList(monitorsFilename)
+func getPeers(gossipConfig *cto.GossipConfig, monitorsFilename string)  {
+	allMonitors = mtrList.NewMonitorList(monitorsFilename)
 
 	for _, monitorId := range gossipConfig.Monitors_ids {
-		peers = append(peers, allMonitors.FindMonitorByID(monitorId));
+		peers = append(peers, allMonitors.FindMonitorByMonitorID(monitorId));
 	}
 }
