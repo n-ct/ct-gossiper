@@ -6,26 +6,39 @@ import (
 	"io/ioutil"
 	"net/http"
 	"encoding/json"
-	cto "ct-gossiper"
 	"os"
-	"strconv"
-	//"time"
+	"context"
+
+
+	mtr "github.com/n-ct/ct-monitor"
+	entitylist "github.com/n-ct/ct-monitor/entitylist"
+	//mtrUtils "github.com/n-ct/ct-monitor/utils"
+)
+const(
+	logListName = "config/log_list.json"
+	logID = "sh4FzIuizYogTodm+Su5iiUgZ2va+nDnsklTLe+LkF4="
 )
 
 func main(){
 
 
-	if len(os.Args) != 4 {
-		fmt.Println("use: test <PORT> <TIMESTAMP> <BLOB>"); //in case I forget how to run my program
+	if len(os.Args) != 2 {
+		fmt.Println("use: test <PORT>"); //in case I forget how to run my program
 		return;
 	}
 
 	var jsonStr []byte;
+	logList := entitylist.NewLogList(logListName)
+	log := logList.FindLogByLogID(logID)
+	logClient, err := mtr.NewLogClient(log)
+	ctx := context.Background()
+	sth, err := logClient.GetSTH(ctx)
+	if err != nil{
+		panic(err)
+	}
 
-	timestamp, _ := strconv.ParseUint(os.Args[2], 10, 64);
-	blob := []byte(os.Args[3]);
 
-	jsonStr, _ = json.Marshal(*cto.NewCTObject("Fake", timestamp, blob, "testSub")); //create a JSON string from CTData struct
+	jsonStr, _ = json.Marshal(*mtr.ConstructCTObject(sth)); //create a JSON string from CTData struct
 
 	req, err := http.NewRequest("POST", fmt.Sprintf("http://localhost:%v/ct/v1/gossip", os.Args[1]), bytes.NewBuffer(jsonStr)); //create a post request
 	req.Header.Set("X-Custom-Header", "myvalue"); //not sure if this is needed but the tutorial I copied from had it
