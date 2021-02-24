@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"encoding/json"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"io/ioutil"
 	"strings"
 	"flag"
+	"time"
 
 	"github.com/golang/glog"
 	cto "ct-gossiper"
@@ -28,6 +30,7 @@ var messages cto.MessagesMap; //[TypeID][subjectOrSigner][Timestamp][Version]
 var alertsMap cto.MessagesMap;//[Subject][Signer][Timestamp][Version]
 var port string;
 var allMonitors *mtrList.MonitorList;
+var gossipConfig *cto.GossipConfig;
 
 
 func main() {
@@ -79,7 +82,7 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 		http.Error(w, err.Error(), http.StatusBadRequest) // if there is an eror report and abort
 		return;
 	}
-
+	requesterAddress := req.Host;
 	//Get data identifier and select map to use
 	identifier := data.Identifier();
 	var workingMap cto.MessagesMap;
@@ -88,7 +91,7 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 	} else {
 		workingMap = messages;
 	}
-
+	glog.Infof("Request from: %s", requesterAddress)
 	glog.Infof("CTObject recived from source: %s\n\n", cto.ToDebugString(data)); //print contents of message (for debugging)
 	if message, ok := workingMap[identifier.First][identifier.Second][identifier.Third][identifier.Fourth]; ok { // if I have the message already check for conflict
 		if bytes.Compare(data.Digest, message.Digest)==0 {
@@ -97,11 +100,9 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 			glog.Infof("Misbehavior detected\n\n"); // if conflict send a PoM to all peers
 			// PoM := cto.NewCTObject("PoM", 0, []byte{0,1,2,3}, ""); //new dummy Proof of misbehavior
 			// addEntry(messages, *PoM, PoM.Identifier()); // store PoM
-			//
+			// gossipPeers(&PoM, requesterAddress)
+			// gossipMonitor(&PoM, requesterAddress)
 			// //gossip new PoM to all peers
-			// for _, peer := range peers{
-			// 	glog.Infof("Gossiping PoM to peer: %v\n", peer.Id);
-			// 	post(fmt.Sprintf("%v/ct/v1/gossip", peer.Gossip), PoM, false);
 			// }
 		}
 	}else{
@@ -110,11 +111,8 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 		} else {
 			fmt.Fprintf(w, "new data"); //respond with "new data"
 			addEntry(workingMap, data, identifier);// if message is new add it to messages map
-
-			for _, peer := range peers{
-				glog.Infof("Gossiping new info to peer: %v\n", peer.MonitorID);
-				post(mtrUtils.CreateRequestURL(peer.GossiperURL, GossipPath), &data, false);
-			}
+			gossipPeers(&data, requesterAddress)
+			gossipMonitor(&data, requesterAddress)
 		}
 	}
 }
@@ -171,7 +169,7 @@ func addEntry(dataMap cto.MessagesMap, data mtr.CTObject, identifier mtr.ObjectI
 
 //gossiperSetup configures gossiper varialbes from json files
 func gossiperSetup(configFilename string, monitorsFilename string){
-	gossipConfig := cto.NewGossipConfig(configFilename);
+	gossipConfig = cto.NewGossipConfig(configFilename);
 
 	getPeers(gossipConfig, monitorsFilename);
 	port = strings.Split(allMonitors.FindMonitorByMonitorID(gossipConfig.Monitor_id).GossiperURL, ":")[2];
@@ -184,5 +182,31 @@ func getPeers(gossipConfig *cto.GossipConfig, monitorsFilename string)  {
 
 	for _, monitorId := range gossipConfig.Monitors_ids {
 		peers = append(peers, allMonitors.FindMonitorByMonitorID(monitorId));
+	}
+}
+
+//gossipPeers sends new data to other gossip servers
+func gossipPeers(data *mtr.CTObject, requesterAddress string){
+	for _, peer := range peers{
+		if requesterAddress != peer.GossiperURL{
+			glog.Infof("Gossiping new info to peer: %v\n", peer.MonitorID);
+			post(mtrUtils.CreateRequestURL(peer.GossiperURL, GossipPath), data, false);
+		}
+	}
+}
+
+//gossipMonitor sends new data to the monitor
+func gossipMonitor(data *mtr.CTObject, requesterAddress string){
+	monitorUrl := allMonitors.FindMonitorByMonitorID(gossipConfig.Monitor_id).MonitorURL;
+	if requesterAddress == monitorUrl {
+		return
+	}
+	//Check if monitor is reachable
+	timeout := 1 * time.Second
+	_, err := net.DialTimeout("tcp", monitorUrl, timeout)
+	if err != nil {
+		glog.Infoln("Monitor unreachable.")
+	} else {
+		post(mtrUtils.CreateRequestURL(monitorUrl, mtr.NewInfoPath), data, true)
 	}
 }
