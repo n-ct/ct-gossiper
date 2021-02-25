@@ -15,20 +15,18 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	cto "ct-gossiper"
+	cto "github.com/n-ct/ct-gossiper"
 	mtr "github.com/n-ct/ct-monitor"
 	mtrList "github.com/n-ct/ct-monitor/entitylist"
 	mtrUtils "github.com/n-ct/ct-monitor/utils"
 )
 
-const(
-	GossipPath = "/ct/v1/gossip"
-)
 
 var peers []*mtrList.MonitorInfo;
 var messages cto.MessagesMap; //[TypeID][subjectOrSigner][Timestamp][Version]
 var alertsMap cto.MessagesMap;//[Subject][Signer][Timestamp][Version]
 var port string;
+var myAddress string;
 var allMonitors *mtrList.MonitorList;
 var gossipConfig *cto.GossipConfig;
 
@@ -63,7 +61,7 @@ func main() {
 
 	gossiperSetup(*configFilename, *monitorsFilename);
 
-	http.HandleFunc(GossipPath, GossipHandler); // call GossipHandler on post to /gossip
+	http.HandleFunc(cto.GossipPath, GossipHandler); // call GossipHandler on post to /gossip
 
 	glog.Infof("Starting server on %v\n", port);
 
@@ -82,7 +80,7 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 		http.Error(w, err.Error(), http.StatusBadRequest) // if there is an eror report and abort
 		return;
 	}
-	requesterAddress := req.Host;
+	requesterAddress := req.Header.Get("requesterAddress")
 	//Get data identifier and select map to use
 	identifier := data.Identifier();
 	var workingMap cto.MessagesMap;
@@ -98,12 +96,14 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 			http.Error(w, "Duplicate item\n", http.StatusBadRequest); // if no conflic send back "duplicate item", and bad request status code to sender
 		} else {
 			glog.Infof("Misbehavior detected\n\n"); // if conflict send a PoM to all peers
-			// PoM := cto.NewCTObject("PoM", 0, []byte{0,1,2,3}, ""); //new dummy Proof of misbehavior
-			// addEntry(messages, *PoM, PoM.Identifier()); // store PoM
-			// gossipPeers(&PoM, requesterAddress)
-			// gossipMonitor(&PoM, requesterAddress)
-			// //gossip new PoM to all peers
-			// }
+			PoM, err := mtr.CreateConflictingSTHPOM(&data, message)
+			if err == nil {
+				addEntry(messages, *PoM, PoM.Identifier()); // store PoM
+				gossipPeers(PoM, requesterAddress)
+				gossipMonitor(PoM, requesterAddress)
+			} else {
+				glog.Error(err)
+			}
 		}
 	}else{
 		if data.Blob == nil{ //If the message does not contain the blob
@@ -131,6 +131,7 @@ func post(address string, data *mtr.CTObject, withBlob bool){
 	req, err := http.NewRequest("POST", address, bytes.NewBuffer(jsonStr)); //create a post request
 	req.Header.Set("X-Custom-Header", "myvalue");
 	req.Header.Set("Content-Type", "application/json"); //set message type to JSON
+	req.Header.Add("requesterAddress", myAddress);
 
 	client := &http.Client{};
 	resp, err := client.Do(req); //make the request
@@ -172,7 +173,8 @@ func gossiperSetup(configFilename string, monitorsFilename string){
 	gossipConfig = cto.NewGossipConfig(configFilename);
 
 	getPeers(gossipConfig, monitorsFilename);
-	port = strings.Split(allMonitors.FindMonitorByMonitorID(gossipConfig.Monitor_id).GossiperURL, ":")[2];
+	myAddress = allMonitors.FindMonitorByMonitorID(gossipConfig.Monitor_id).GossiperURL;
+	port = strings.Split(myAddress, ":")[2];
 
 }
 
@@ -188,9 +190,12 @@ func getPeers(gossipConfig *cto.GossipConfig, monitorsFilename string)  {
 //gossipPeers sends new data to other gossip servers
 func gossipPeers(data *mtr.CTObject, requesterAddress string){
 	for _, peer := range peers{
+
 		if requesterAddress != peer.GossiperURL{
+			glog.Infoln("GossiperURL:", peer.GossiperURL);
+			glog.Infoln("requester:", requesterAddress);
 			glog.Infof("Gossiping new info to peer: %v\n", peer.MonitorID);
-			post(mtrUtils.CreateRequestURL(peer.GossiperURL, GossipPath), data, false);
+			post(mtrUtils.CreateRequestURL(peer.GossiperURL, cto.GossipPath), data, false);
 		}
 	}
 }

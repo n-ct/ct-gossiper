@@ -7,6 +7,10 @@ import (
 	mtr "github.com/n-ct/ct-monitor"
 )
 
+const(
+	GossipPath = "/ct/v1/gossip"
+)
+
 type MessagesMap map[string]map[string]map[uint64]map[string] *mtr.CTObject;
 
 

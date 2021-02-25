@@ -9,11 +9,10 @@ import (
 	"os"
 	"context"
 
-
 	mtr "github.com/n-ct/ct-monitor"
 	entitylist "github.com/n-ct/ct-monitor/entitylist"
-	//mtrUtils "github.com/n-ct/ct-monitor/utils"
 )
+
 const(
 	logListName = "config/log_list.json"
 	logID = "sh4FzIuizYogTodm+Su5iiUgZ2va+nDnsklTLe+LkF4="
@@ -38,7 +37,7 @@ func main(){
 	}
 
 
-	jsonStr, _ = json.Marshal(*mtr.ConstructCTObject(sth)); //create a JSON string from CTData struct
+	jsonStr, _ = json.Marshal(sth); //create a JSON string from CTData struct
 
 	req, err := http.NewRequest("POST", fmt.Sprintf("http://localhost:%v/ct/v1/gossip", os.Args[1]), bytes.NewBuffer(jsonStr)); //create a post request
 	req.Header.Set("X-Custom-Header", "myvalue"); //not sure if this is needed but the tutorial I copied from had it
