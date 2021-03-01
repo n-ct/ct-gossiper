@@ -240,18 +240,21 @@ func gossipMonitor(data *mtr.CTObject, requesterAddress string){
 }
 
 func validateSignature(data *mtr.CTObject) bool {
-	logger := allLogs.FindLogByLogID(data.Signer);
+
 	blob := mtr.DeconstructCTObject(data)
 	var err error
 
 	switch v := blob.(type) {
-	case *mtr.SignedTreeHeadData:
+	case mtr.SignedTreeHeadData:
+		logger := allLogs.FindLogByLogID(data.Signer);
 		err = signature.VerifySignature(logger.Key, blob.(mtr.SignedTreeHeadData).TreeHeadData, blob.(mtr.SignedTreeHeadData).Signature)
 
-	case *mtr.Alert:
-		err = signature.VerifySignature(logger.Key, blob.(mtr.Alert).TBS, blob.(mtr.Alert).Signature)
+	case mtr.Alert:
+		monitor := allMonitors.FindMonitorByMonitorID(data.Signer)
+		err = signature.VerifySignature(monitor.MonitorKey, blob.(mtr.Alert).TBS, blob.(mtr.Alert).Signature)
 
-	case *mtr.SignedTreeHeadWithConsistencyProof:
+	case mtr.SignedTreeHeadWithConsistencyProof:
+		logger := allLogs.FindLogByLogID(data.Signer);
 		err = signature.VerifySignature(logger.Key, blob.(mtr.SignedTreeHeadWithConsistencyProof).SignedTreeHead.TreeHeadData, blob.(mtr.SignedTreeHeadWithConsistencyProof).SignedTreeHead.Signature)
 
 	default:
@@ -259,6 +262,7 @@ func validateSignature(data *mtr.CTObject) bool {
 	}
 
 	if err != nil{
+		glog.Infof("%v\n", err)
 		return false
 	}
 
