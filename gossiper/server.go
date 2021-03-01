@@ -18,6 +18,7 @@ import (
 	cto "github.com/n-ct/ct-gossiper"
 	mtr "github.com/n-ct/ct-monitor"
 	mtrList "github.com/n-ct/ct-monitor/entitylist"
+	signature "github.com/n-ct/ct-monitor/signature"
 	mtrUtils "github.com/n-ct/ct-monitor/utils"
 )
 
@@ -29,6 +30,7 @@ var port string;
 var myAddress string;
 var allMonitors *mtrList.MonitorList;
 var gossipConfig *cto.GossipConfig;
+var allLogs *mtrList.LogList;
 
 
 func main() {
@@ -46,20 +48,21 @@ func main() {
 	//Setting flags
   var configFilename = flag.String("config", "", "File containing gossiper configuration");
 	var monitorsFilename = flag.String("monitor_list", "", "File containing monitor-gossiper pairs");
+	var logsFilename = flag.String("log_list", "", "File containing the list of logs");
 
 	flag.Parse();
 	defer glog.Flush(); //if the program ends unexpectedly make sure all debug info is printed
 
 	//if filenames are not defined, terminate
-	if(len(*configFilename) == 0 || len(*monitorsFilename) == 0){
-    fmt.Println("configuration files are required.");
-    return;
+	if len(*configFilename) == 0 || len(*monitorsFilename) == 0 || len(*logsFilename) == 0 {
+    fmt.Println("configuration files are required.")
+    return
   }
 
 	messages = make(cto.MessagesMap);
 	alertsMap = make(cto.MessagesMap);
 
-	gossiperSetup(*configFilename, *monitorsFilename);
+	gossiperSetup(*configFilename, *monitorsFilename, *logsFilename);
 
 	http.HandleFunc(cto.GossipPath, GossipHandler); // call GossipHandler on post to /gossip
 
@@ -81,38 +84,58 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 		return;
 	}
 	requesterAddress := req.Header.Get("requesterAddress")
+
 	//Get data identifier and select map to use
 	identifier := data.Identifier();
+	identifierStr := cto.IdentifierToString(identifier)
+
 	var workingMap cto.MessagesMap;
 	if data.TypeID == "Alert" {
 		workingMap = alertsMap;
 	} else {
 		workingMap = messages;
 	}
-	glog.Infof("Request from: %s", requesterAddress)
-	glog.Infof("CTObject recived from source: %s\n\n", cto.ToDebugString(data)); //print contents of message (for debugging)
+
+	glog.Infof("%s Received request\n", identifierStr)
+	//glog.Infof("CTObject received from source: %s\n\n", cto.ToDebugString(data)); //print contents of message (for debugging)
 	if message, ok := workingMap[identifier.First][identifier.Second][identifier.Third][identifier.Fourth]; ok { // if I have the message already check for conflict
 		if bytes.Compare(data.Digest, message.Digest)==0 {
+			glog.Infof("%s Duplicate Item\n\n", identifierStr)
 			http.Error(w, "Duplicate item\n", http.StatusBadRequest); // if no conflic send back "duplicate item", and bad request status code to sender
+
 		} else {
-			glog.Infof("Misbehavior detected\n\n"); // if conflict send a PoM to all peers
+			glog.Infof("%s Misbehavior detected\n", identifierStr); // if conflict send a PoM to all peers
 			PoM, err := mtr.CreateConflictingSTHPOM(&data, message)
 			if err == nil {
 				addEntry(messages, *PoM, PoM.Identifier()); // store PoM
+				glog.Infof("%s Stored PoM")
 				gossipPeers(PoM, requesterAddress)
 				gossipMonitor(PoM, requesterAddress)
+				glog.Infof("%s Finished gossiping PoM\n\n", identifierStr)
+
 			} else {
 				glog.Error(err)
 			}
 		}
-	}else{
-		if data.Blob == nil{ //If the message does not contain the blob
-			fmt.Fprintf(w, "blob-request"); //respond with "blob-request"
 		} else {
-			fmt.Fprintf(w, "new data"); //respond with "new data"
-			addEntry(workingMap, data, identifier);// if message is new add it to messages map
-			gossipPeers(&data, requesterAddress)
-			gossipMonitor(&data, requesterAddress)
+			if data.Blob == nil{ //If the message does not contain the blob
+				glog.Infof("%s blob-request sent\n", identifierStr)
+				fmt.Fprintf(w, "blob-request"); //respond with "blob-request"
+
+		} else {
+			if validateSignature(&data) {
+				fmt.Fprintf(w, "new data"); //respond with "new data"
+				addEntry(workingMap, data, identifier);// if message is new add it to messages map
+				glog.Infof("%s Stored new data\n", identifierStr)
+				gossipPeers(&data, requesterAddress)
+				gossipMonitor(&data, requesterAddress)
+				glog.Infof("%s Finished gossiping new data\n\n", identifierStr)
+
+			} else {
+				//invalid Signature
+				glog.Infof("%s Invalid Signature\n\n", identifierStr)
+				http.Error(w, "Invalid Signature\n", http.StatusBadRequest);
+			}
 		}
 	}
 }
@@ -149,7 +172,7 @@ func post(address string, data *mtr.CTObject, withBlob bool){
 	glog.Infoln("response Body:", sbody);
 
 	if strings.ToLower(sbody) == "blob-request" {
-		glog.Infof("sending blob to peer: %v\n\n", address);
+		glog.Infof("Sending blob to peer: %v\n", address);
 		post(address, data, true); // if the recipient sends back a blob request resend the message with the blob
 	}
 }
@@ -169,13 +192,15 @@ func addEntry(dataMap cto.MessagesMap, data mtr.CTObject, identifier mtr.ObjectI
 }
 
 //gossiperSetup configures gossiper varialbes from json files
-func gossiperSetup(configFilename string, monitorsFilename string){
+func gossiperSetup(configFilename string, monitorsFilename string, logsFilename string){
 	gossipConfig = cto.NewGossipConfig(configFilename);
 
 	getPeers(gossipConfig, monitorsFilename);
 	myAddress = allMonitors.FindMonitorByMonitorID(gossipConfig.Monitor_id).GossiperURL;
 	port = strings.Split(myAddress, ":")[2];
 
+	allLogs = mtrList.NewLogList(logsFilename); //get all logs
+	glog.Infoln("Setup completed")
 }
 
 //getPeers get all monitors from file and populates the peers with the respective monitors
@@ -192,9 +217,7 @@ func gossipPeers(data *mtr.CTObject, requesterAddress string){
 	for _, peer := range peers{
 
 		if requesterAddress != peer.GossiperURL{
-			glog.Infoln("GossiperURL:", peer.GossiperURL);
-			glog.Infoln("requester:", requesterAddress);
-			glog.Infof("Gossiping new info to peer: %v\n", peer.MonitorID);
+			glog.Infof("Gossiping info to peer: %v\n", peer.MonitorID);
 			post(mtrUtils.CreateRequestURL(peer.GossiperURL, cto.GossipPath), data, false);
 		}
 	}
@@ -214,4 +237,30 @@ func gossipMonitor(data *mtr.CTObject, requesterAddress string){
 	} else {
 		post(mtrUtils.CreateRequestURL(monitorUrl, mtr.NewInfoPath), data, true)
 	}
+}
+
+func validateSignature(data *mtr.CTObject) bool {
+	logger := allLogs.FindLogByLogID(data.Signer);
+	blob := mtr.DeconstructCTObject(data)
+	var err error
+
+	switch v := blob.(type) {
+	case *mtr.SignedTreeHeadData:
+		err = signature.VerifySignature(logger.Key, blob.(mtr.SignedTreeHeadData).TreeHeadData, blob.(mtr.SignedTreeHeadData).Signature)
+
+	case *mtr.Alert:
+		err = signature.VerifySignature(logger.Key, blob.(mtr.Alert).TBS, blob.(mtr.Alert).Signature)
+
+	case *mtr.SignedTreeHeadWithConsistencyProof:
+		err = signature.VerifySignature(logger.Key, blob.(mtr.SignedTreeHeadWithConsistencyProof).SignedTreeHead.TreeHeadData, blob.(mtr.SignedTreeHeadWithConsistencyProof).SignedTreeHead.Signature)
+
+	default:
+		err = fmt.Errorf("Unknown type %v\n", v)
+	}
+
+	if err != nil{
+		return false
+	}
+
+	return true
 }

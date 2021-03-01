@@ -37,10 +37,9 @@ func main(){
 	}
 
 
-	jsonStr, _ = json.Marshal(sth); //create a JSON string from CTData struct
+	jsonStr, _ = json.Marshal(sth); //create a JSON string from CTObject struct
 
 	req, err := http.NewRequest("POST", fmt.Sprintf("http://localhost:%v/ct/v1/gossip", os.Args[1]), bytes.NewBuffer(jsonStr)); //create a post request
-	req.Header.Set("X-Custom-Header", "myvalue"); //not sure if this is needed but the tutorial I copied from had it
 	req.Header.Set("Content-Type", "application/json"); //set message type to JSON
 
 	client := &http.Client{};

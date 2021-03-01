@@ -32,6 +32,10 @@ func ToDebugString(data mtr.CTObject) (string){
 	return fmt.Sprintf("CTObject{\n\tTypeID:%v\n\tTimestamp:%v\n\tDigest:%v\n\tBlob:%v\n}", data.TypeID, data.Timestamp, data.Digest, data.Blob);
 }
 
+func IdentifierToString(id mtr.ObjectIdentifier) string {
+	return fmt.Sprintf("[%s:%s:%s:%s]", id.First, id.Second, id.Third, id.Fourth)
+}
+
 //structs for JSON files
 type GossipConfig struct{
 	Monitors_ids []string `json:"monitor_ids"`
