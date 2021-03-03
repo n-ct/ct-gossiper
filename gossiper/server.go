@@ -142,12 +142,12 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 
 // post takes in an address as a string and a pointer to a CTObject struct
 // and makes a post request to that address with the JSON encoded version of that struct
-func post(address string, data *mtr.CTObject, withBlob bool){
+func post(address string, data *mtr.CTObject, withoutBlob bool){
 	var toSend *mtr.CTObject;
-	if withBlob {
-		toSend = data;
-	} else {
+	if withoutBlob && len(data.Blob) > 1000000 { //threshold  to be change after testing
 		toSend = cto.CopyWithoutBlob(data);
+	} else {
+		toSend = data;
 	}
 	var jsonStr, _ = json.Marshal(toSend);
 
@@ -173,7 +173,7 @@ func post(address string, data *mtr.CTObject, withBlob bool){
 
 	if strings.ToLower(sbody) == "blob-request" {
 		glog.Infof("Sending blob to peer: %v\n", address);
-		post(address, data, true); // if the recipient sends back a blob request resend the message with the blob
+		post(address, data, false); // if the recipient sends back a blob request resend the message with the blob
 	}
 }
 
@@ -218,7 +218,7 @@ func gossipPeers(data *mtr.CTObject, requesterAddress string){
 
 		if requesterAddress != peer.GossiperURL{
 			glog.Infof("Gossiping info to peer: %v\n", peer.MonitorID);
-			post(mtrUtils.CreateRequestURL(peer.GossiperURL, cto.GossipPath), data, false);
+			post(mtrUtils.CreateRequestURL(peer.GossiperURL, cto.GossipPath), data, true);
 		}
 	}
 }
@@ -235,7 +235,7 @@ func gossipMonitor(data *mtr.CTObject, requesterAddress string){
 	if err != nil {
 		glog.Infoln("Monitor unreachable.")
 	} else {
-		post(mtrUtils.CreateRequestURL(monitorUrl, mtr.NewInfoPath), data, true)
+		post(mtrUtils.CreateRequestURL(monitorUrl, mtr.NewInfoPath), data, false)
 	}
 }
 
