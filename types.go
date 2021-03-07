@@ -9,6 +9,7 @@ import (
 
 const(
 	GossipPath = "/ct/v1/gossip"
+	Threshold = 1000000
 )
 
 type MessagesMap map[string]map[string]map[uint64]map[string] *mtr.CTObject;
@@ -44,7 +45,10 @@ type GossipConfig struct{
 
 func NewGossipConfig (filename string) (*GossipConfig) {
 	var gossipConfig GossipConfig;
-	byteData := mtrUtils.JSONFiletoBytes(filename);
+	byteData, err := mtrUtils.FiletoBytes(filename)
+	if err != nil {
+		panic(err)
+	}
 	if err := json.Unmarshal(byteData, &gossipConfig); err != nil {
 		fmt.Errorf("Failed to parse gossip configuration: %v", err);
 		return nil;
