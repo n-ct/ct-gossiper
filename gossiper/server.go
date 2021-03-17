@@ -14,12 +14,13 @@ import (
 	"flag"
 	"time"
 
-	//"github.com/golang/glog"
+	"github.com/golang/glog"
 	cto "github.com/n-ct/ct-gossiper"
 	mtr "github.com/n-ct/ct-monitor"
 	mtrList "github.com/n-ct/ct-monitor/entitylist"
 	signature "github.com/n-ct/ct-monitor/signature"
 	mtrUtils "github.com/n-ct/ct-monitor/utils"
+	tls "github.com/google/certificate-transparency-go/tls"
 )
 
 
@@ -40,7 +41,8 @@ func main() {
 
 	go func() {
 		<-done
-		fmt.Println("kill recived");
+		glog.Infoln("kill recived");
+		glog.Flush();
 		os.Exit(1);
 	}(); //when channel is notified print debug info, make sure all logs get written and exit
 
@@ -53,7 +55,7 @@ func main() {
 
 	//if filenames are not defined, terminate
 	if len(*configFilename) == 0 || len(*monitorsFilename) == 0 || len(*logsFilename) == 0 {
-    fmt.Println("configuration files are required.")
+    glog.Infoln("configuration files are required.")
     return
   }
 
@@ -61,7 +63,7 @@ func main() {
 
 	http.HandleFunc(cto.GossipPath, GossipHandler); // call GossipHandler on Post to /gossip
 
-	fmt.Printf("Starting server on %v\n", port);
+	glog.Infof("Starting server on %v\n", port);
 
 	err := http.ListenAndServe(fmt.Sprintf(":%v", port), nil); // start server
 	if err != nil {
@@ -91,51 +93,54 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 		workingMap = messages;
 	}
 
-	fmt.Printf("%s Received request\n", identifierStr)
+	glog.Infof("%s Received request\n", identifierStr)
 	if message, ok := workingMap[identifier.First][identifier.Second][identifier.Third][identifier.Fourth]; ok { // if I have the message already check for conflict
 		if bytes.Compare(data.Digest, message.Digest)==0 {
-			fmt.Printf("%s Duplicate Item\n\n", identifierStr)
-			http.Error(w, "Duplicate item\n", http.StatusBadRequest); // if no conflic send back "duplicate item", and bad request status code to sender
+			glog.Infof("%s Duplicate Item\n\n", identifierStr)
+			http.Error(w, "Duplicate item", http.StatusBadRequest); // if no conflic send back "duplicate item", and bad request status code to sender
 
 		} else {
 			if data.Blob == nil{ //If the message does not contain the blob
-				fmt.Printf("%s blob-request sent\n", identifierStr)
+				glog.Infof("%s blob-request sent\n", identifierStr)
 				fmt.Fprintf(w, "blob-request"); //respond with "blob-request"
 			} else {
 				if ValidateSignature(&data) {
-					fmt.Printf("%s Misbehavior detected\n", identifierStr); // if conflict send a PoM to all peers.
+					glog.Infof("%s Misbehavior detected\n", identifierStr); // if conflict send a PoM to all peers.
 					PoM, err := mtr.CreateConflictingSTHPOM(&data, message)
 					if err == nil {
 						addEntry(messages, *PoM, PoM.Identifier()); // store PoM
-						fmt.Printf("%s Stored PoM\n", identifierStr)
+						glog.Infof("%s Stored PoM\n", identifierStr)
 						gossipPeers(PoM, requesterAddress)
 						gossipMonitor(PoM, requesterAddress)
-						fmt.Printf("%s Finished gossiping PoM\n\n", identifierStr)
+						glog.Infof("%s Finished gossiping PoM\n\n", identifierStr)
 
 					} else {
 						fmt.Errorf("Error creating ConflictingSTHPOM: %s\n", err) //error creating "ConflictingSTHPOM"
 					}
+				} else {
+					glog.Infof("%s invalid data\n\n", identifierStr)
+					http.Error(w, "invalid data", http.StatusBadRequest)
 				}
 			}
 		}
 		} else { //message not in MessagesMap
 			if data.Blob == nil{ //If the message does not contain the blob
-				fmt.Printf("%s blob-request sent\n", identifierStr)
+				glog.Infof("%s blob-request sent\n", identifierStr)
 				fmt.Fprintf(w, "blob-request"); //respond with "blob-request"
 
 		} else {
 			if ValidateSignature(&data) {
 				fmt.Fprintf(w, "new data"); //respond with "new data"
 				addEntry(workingMap, data, identifier);// if message is new add it to messages map
-				fmt.Printf("%s Stored new data\n", identifierStr)
+				glog.Infof("%s Stored new data\n", identifierStr)
 				gossipPeers(&data, requesterAddress)
 				gossipMonitor(&data, requesterAddress)
-				fmt.Printf("%s Finished gossiping new data\n\n", identifierStr)
+				glog.Infof("%s Finished gossiping new data\n\n", identifierStr)
 
 			} else {
 				//invalid Signature
-				fmt.Printf("%s Invalid Signature\n\n", identifierStr)
-				http.Error(w, "Invalid Signature\n", http.StatusBadRequest);
+				glog.Infof("%s invalid data\n\n", identifierStr)
+				http.Error(w, "invalid data", http.StatusBadRequest)
 			}
 		}
 	}
@@ -167,14 +172,14 @@ func Post(address string, data *mtr.CTObject, withoutBlob bool){
 	defer resp.Body.Close();
 
 	//print info for debug
-	fmt.Printf("response Status: %s\n", resp.Status);
-	fmt.Printf("response Headers: %s\n", resp.Header);
+	glog.Infof("response Status: %s\n", resp.Status);
+	glog.Infof("response Headers: %s\n", resp.Header);
 	body, _ := ioutil.ReadAll(resp.Body);
 	sbody := string(body);
-	fmt.Printf("response Body: %s\n", sbody);
+	glog.Infof("response Body: %s\n", sbody);
 
 	if strings.ToLower(sbody) == "blob-request" {
-		fmt.Printf("Sending blob to peer: %v\n", address);
+		glog.Infof("Sending blob to peer: %v\n", address);
 		Post(address, data, false); // if the recipient sends back a blob request resend the message with the blob
 	}
 }
@@ -210,7 +215,7 @@ func GossiperSetup(configFilename string, monitorsFilename string, logsFilename 
 	if err != nil{
 		panic(err)
 	}
-	fmt.Println("Setup completed")
+	glog.Infoln("Setup completed")
 }
 
 //GetPeers get all monitors from file and populates the peers with the respective monitors
@@ -231,7 +236,7 @@ func gossipPeers(data *mtr.CTObject, requesterAddress string){
 	for _, peer := range peers{
 
 		if requesterAddress != peer.GossiperURL{
-			fmt.Printf("Gossiping info to peer: %v\n", peer.MonitorID);
+			glog.Infof("Gossiping info to peer: %v\n", peer.MonitorID);
 			Post(mtrUtils.CreateRequestURL(peer.GossiperURL, cto.GossipPath), data, true);
 		}
 	}
@@ -247,7 +252,7 @@ func gossipMonitor(data *mtr.CTObject, requesterAddress string){
 	timeout := 1 * time.Second
 	_, err := net.DialTimeout("tcp", monitorUrl, timeout)
 	if err != nil {
-		fmt.Println("Monitor unreachable.")
+		glog.Infoln("Monitor unreachable.")
 	} else {
 		Post(mtrUtils.CreateRequestURL(monitorUrl, mtr.NewInfoPath), data, false)
 	}
@@ -256,49 +261,59 @@ func gossipMonitor(data *mtr.CTObject, requesterAddress string){
 //ValidateSignature check if the received message has a valid signature
 func ValidateSignature(data *mtr.CTObject) bool {
 	var signature_err error
+	var hash tls.HashAlgorithm
+
+	if data.Blob == nil{
+		fmt.Errorf("Missing blob\n")
+		return false
+	}
 
 	switch data.TypeID{
 	case mtr.STHTypeID:
 		logger := allLogs.FindLogByLogID(data.Signer)
-		blob, err := data.DeconstructSTH()
+		sth, err := data.DeconstructSTH()
 		if err != nil{
 			fmt.Errorf("Error deconstructing STH: %s\n", err)
 			return false
 		}
-		signature_err = signature.VerifySignature(logger.Key, blob.TreeHeadData, blob.Signature)
+		signature_err = signature.VerifySignature(logger.Key, sth.TreeHeadData, sth.Signature)
+		hash = sth.Signature.Algorithm.Hash
 
 	case mtr.AlertTypeID:
 		monitor := allMonitors.FindMonitorByMonitorID(data.Signer)
-		blob, err := data.DeconstructAlert();
+		alert, err := data.DeconstructAlert();
 		if err != nil{
 			fmt.Errorf("Error deconstructing Alert: %s\n", err)
 			return false
 		}
-		signature_err = signature.VerifySignature(monitor.MonitorKey, blob.TBS, blob.Signature)
+		signature_err = signature.VerifySignature(monitor.MonitorKey, alert.TBS, alert.Signature)
+		hash = alert.Signature.Algorithm.Hash
 
 	case mtr.STHPOCTypeID:
 		logger := allLogs.FindLogByLogID(data.Signer);
-		blob, err := data.DeconstructSTH()
+		sth_poc, err := data.DeconstructSTH()
 		if err != nil{
 			fmt.Errorf("Error deconstructing STH_POC: %s\n", err)
 			return false
 		}
-		signature_err = signature.VerifySignature(logger.Key, blob.TreeHeadData, blob.Signature)
+		signature_err = signature.VerifySignature(logger.Key, sth_poc.TreeHeadData, sth_poc.Signature)
+		hash = sth_poc.Signature.Algorithm.Hash
 
 	case mtr.ConflictingSTHPOMTypeID:
-		blob, err := data.DeconstructConflictingSTHPOM()//ConflictingSTHPOM
+		con_sth_pom, err := data.DeconstructConflictingSTHPOM()//ConflictingSTHPOM
 		if err != nil{
 			fmt.Errorf("Error deconstructing Conflicting STH: %s\n", err)
 			return false
 		}
-		logger := allLogs.FindLogByLogID(blob.STH1.LogID);
-		signature_err = signature.VerifySignature(logger.Key, blob.STH1, blob.STH1.Signature)
+		logger := allLogs.FindLogByLogID(con_sth_pom.STH1.LogID);
+		signature_err = signature.VerifySignature(logger.Key, con_sth_pom.STH1, con_sth_pom.STH1.Signature)
 		if signature_err != nil{
 			break
 		}
+		hash = con_sth_pom.STH1.Signature.Algorithm.Hash
 
-		logger = allLogs.FindLogByLogID(blob.STH2.LogID);
-		signature_err = signature.VerifySignature(logger.Key, blob.STH2, blob.STH2.Signature)
+		logger = allLogs.FindLogByLogID(con_sth_pom.STH2.LogID);
+		signature_err = signature.VerifySignature(logger.Key, con_sth_pom.STH2, con_sth_pom.STH2.Signature)
 
 	default:
 		signature_err = fmt.Errorf("Unknown type %v\n", data.TypeID)
@@ -310,5 +325,25 @@ func ValidateSignature(data *mtr.CTObject) bool {
 		return false
 	}
 
+	digest, _, err := signature.GenerateHash(hash, data.Blob)
+	if err != nil || !CompareDigest(digest, data.Digest){
+		return false
+	}
+
 	return true
+}
+
+//Compare calculated digest and digest received
+func CompareDigest(digest, dataDigest []byte) bool {
+	glog.Info(digest)
+	glog.Info(dataDigest)
+	if digest == nil || dataDigest == nil{
+		return false
+	}
+	for i := range digest {
+		if digest[i] != dataDigest[i]{
+			return false
+		}
+	}
+	return true //digest match
 }
