@@ -245,12 +245,15 @@ func gossipPeers(data *mtr.CTObject, requesterAddress string){
 //gossipMonitor sends new data to the monitor
 func gossipMonitor(data *mtr.CTObject, requesterAddress string){
 	monitorUrl := allMonitors.FindMonitorByMonitorID(gossipConfig.Monitor_id).MonitorURL;
+	glog.Infof("requester: %v\n", requesterAddress) //debug info
+	glog.Infof("monitor: %v\n", monitorUrl) //debug info
 	if requesterAddress == monitorUrl {
+		glog.Infoln("Request from monitor")
 		return
 	}
 	//Check if monitor is reachable
 	timeout := 1 * time.Second
-	_, err := net.DialTimeout("tcp", monitorUrl, timeout)
+	_, err := net.DialTimeout("tcp", strings.SplitN(monitorUrl, "/", 3)[2], timeout)
 	if err != nil {
 		glog.Infoln("Monitor unreachable.")
 	} else {
