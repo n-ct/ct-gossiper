@@ -333,10 +333,8 @@ func ValidateSignature(data *mtr.CTObject) bool {
 	return true
 }
 
-//Compare calculated digest and digest received
+//Compare calculated digest and digest received - may move to utils.go
 func CompareDigest(digest, dataDigest []byte) bool {
-	glog.Info(digest)
-	glog.Info(dataDigest)
 	if digest == nil || dataDigest == nil{
 		return false
 	}
