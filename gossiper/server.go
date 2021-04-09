@@ -21,7 +21,7 @@ import (
 	signature "github.com/n-ct/ct-monitor/signature"
 	mtrUtils "github.com/n-ct/ct-monitor/utils"
 	tls "github.com/google/certificate-transparency-go/tls"
-	ctca "github.com/n-ct/ct-certificate-authority"
+	"github.com/n-ct/ct-certificate-authority/ca"
 )
 
 
@@ -280,7 +280,7 @@ func ValidateSignature(data *mtr.CTObject) bool {
 			fmt.Errorf("Error deconstructing STH: %s\n", err)
 			return false
 		}
-		signature_err = ctca.VerifySRDSignature(srd, logger.Key)
+		signature_err = signature.VerifySignature(logger.Key, sth.TreeHeadData, sth.Signature) 
 		hash = sth.Signature.Algorithm.Hash
 
 	case mtr.AlertTypeID:
@@ -326,7 +326,7 @@ func ValidateSignature(data *mtr.CTObject) bool {
 			fmt.Errorf("Error deconstructing SRD: %s\n", err)
 			return false
 		}
-		signature_err = signature.VerifySignature(logger.Key, srd.RevDigest, srd.Signature)
+		signature_err = ca.VerifySRDSignature(srd, logger.Key)
 		hash = srd.Signature.Algorithm.Hash
 
 	default:
