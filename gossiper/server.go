@@ -317,6 +317,16 @@ func ValidateSignature(data *mtr.CTObject) bool {
 
 		logger = allLogs.FindLogByLogID(con_sth_pom.STH2.LogID);
 		signature_err = signature.VerifySignature(logger.Key, con_sth_pom.STH2, con_sth_pom.STH2.Signature)
+	
+	case mtr.SRDWithRevDataTypeID:
+		logger := allLogs.FindLogByLogID(data.Signer)
+		srd, err := data.DeconstructSRD()
+		if err != nil{
+			fmt.Errorf("Error deconstructing SRD: %s\n", err)
+			return false
+		}
+		signature_err = signature.VerifySignature(logger.Key, srd.RevDigest, srd.Signature)
+		hash = srd.Signature.Algorithm.Hash
 
 	default:
 		signature_err = fmt.Errorf("Unknown type %v\n", data.TypeID)
