@@ -3,7 +3,8 @@ module github.com/n-ct/ct-gossiper
 go 1.15
 
 require (
-	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b // indirect
-	github.com/google/certificate-transparency-go v1.1.1 // indirect
-	github.com/n-ct/ct-monitor v0.0.0-20210317234427-0e4826a3d490
+	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
+	github.com/google/certificate-transparency-go v1.1.1
+	github.com/n-ct/ct-certificate-authority v0.0.0-20210408003514-086e14235d37
+	github.com/n-ct/ct-monitor v0.0.0-20210407172231-18516bf4180d
 )

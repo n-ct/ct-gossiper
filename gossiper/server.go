@@ -105,7 +105,7 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 				glog.Infof("%s blob-request sent\n", identifierStr)
 				fmt.Fprintf(w, "blob-request"); //respond with "blob-request"
 			} else {
-				if ValidateSignature(&data) {
+				if err := ValidateSignature(&data); err == nil {
 					glog.Infof("%s Misbehavior detected\n", identifierStr); // if conflict send a PoM to all peers.
 					PoM, err := mtr.CreateConflictingSTHPOM(&data, message)
 					if err == nil {
@@ -119,8 +119,8 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 						fmt.Errorf("Error creating ConflictingSTHPOM: %s\n", err) //error creating "ConflictingSTHPOM"
 					}
 				} else {
-					glog.Infof("%s invalid data\n\n", identifierStr)
-					http.Error(w, "invalid data", http.StatusBadRequest)
+					glog.Infof("%s invalid data: %v\n\n", identifierStr, err)
+					http.Error(w, "invalid data:", http.StatusBadRequest)
 				}
 			}
 		}
@@ -130,7 +130,7 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 				fmt.Fprintf(w, "blob-request"); //respond with "blob-request"
 
 		} else {
-			if ValidateSignature(&data) {
+			if err := ValidateSignature(&data); err == nil {
 				fmt.Fprintf(w, "new data"); //respond with "new data"
 				addEntry(workingMap, data, identifier);// if message is new add it to messages map
 				glog.Infof("%s Stored new data\n", identifierStr)
@@ -140,7 +140,7 @@ func GossipHandler(w http.ResponseWriter, req *http.Request){
 
 			} else {
 				//invalid Signature
-				glog.Infof("%s invalid data\n\n", identifierStr)
+				glog.Infof("%s invalid data %v\n\n", identifierStr, err)
 				http.Error(w, "invalid data", http.StatusBadRequest)
 			}
 		}
@@ -263,13 +263,12 @@ func gossipMonitor(data *mtr.CTObject, requesterAddress string){
 }
 
 //ValidateSignature check if the received message has a valid signature
-func ValidateSignature(data *mtr.CTObject) bool {
+func ValidateSignature(data *mtr.CTObject) error {
 	var signature_err error
 	var hash tls.HashAlgorithm
 
 	if data.Blob == nil{
-		fmt.Errorf("Missing blob\n")
-		return false
+		return fmt.Errorf("Missing blob\n")
 	}
 
 	switch data.TypeID{
@@ -277,8 +276,7 @@ func ValidateSignature(data *mtr.CTObject) bool {
 		logger := allLogs.FindLogByLogID(data.Signer)
 		sth, err := data.DeconstructSTH()
 		if err != nil{
-			fmt.Errorf("Error deconstructing STH: %s\n", err)
-			return false
+			return fmt.Errorf("Error deconstructing STH: %s\n", err)
 		}
 		signature_err = signature.VerifySignature(logger.Key, sth.TreeHeadData, sth.Signature) 
 		hash = sth.Signature.Algorithm.Hash
@@ -287,8 +285,7 @@ func ValidateSignature(data *mtr.CTObject) bool {
 		monitor := allMonitors.FindMonitorByMonitorID(data.Signer)
 		alert, err := data.DeconstructAlert();
 		if err != nil{
-			fmt.Errorf("Error deconstructing Alert: %s\n", err)
-			return false
+			return fmt.Errorf("Error deconstructing Alert: %s\n", err)
 		}
 		signature_err = signature.VerifySignature(monitor.MonitorKey, alert.TBS, alert.Signature)
 		hash = alert.Signature.Algorithm.Hash
@@ -297,8 +294,7 @@ func ValidateSignature(data *mtr.CTObject) bool {
 		logger := allLogs.FindLogByLogID(data.Signer);
 		sth_poc, err := data.DeconstructSTH()
 		if err != nil{
-			fmt.Errorf("Error deconstructing STH_POC: %s\n", err)
-			return false
+			return fmt.Errorf("Error deconstructing STH_POC: %s\n", err)
 		}
 		signature_err = signature.VerifySignature(logger.Key, sth_poc.TreeHeadData, sth_poc.Signature)
 		hash = sth_poc.Signature.Algorithm.Hash
@@ -306,8 +302,7 @@ func ValidateSignature(data *mtr.CTObject) bool {
 	case mtr.ConflictingSTHPOMTypeID:
 		con_sth_pom, err := data.DeconstructConflictingSTHPOM()//ConflictingSTHPOM
 		if err != nil{
-			fmt.Errorf("Error deconstructing Conflicting STH: %s\n", err)
-			return false
+			return fmt.Errorf("Error deconstructing Conflicting STH: %s\n", err)
 		}
 		logger := allLogs.FindLogByLogID(con_sth_pom.STH1.LogID);
 		signature_err = signature.VerifySignature(logger.Key, con_sth_pom.STH1, con_sth_pom.STH1.Signature)
@@ -323,8 +318,7 @@ func ValidateSignature(data *mtr.CTObject) bool {
 		logger := allLogs.FindLogByLogID(data.Signer)
 		srd, err := data.DeconstructSRD()
 		if err != nil{
-			fmt.Errorf("Error deconstructing SRD: %s\n", err)
-			return false
+			return fmt.Errorf("Error deconstructing SRD: %s\n", err)
 		}
 		signature_err = ca.VerifySRDSignature(srd, logger.Key)
 		hash = srd.Signature.Algorithm.Hash
@@ -335,16 +329,15 @@ func ValidateSignature(data *mtr.CTObject) bool {
 	}
 
 	if signature_err != nil{
-		fmt.Errorf("%v\n", signature_err)
-		return false
+		return fmt.Errorf("%v\n", signature_err)
 	}
 
 	digest, _, err := signature.GenerateHash(hash, data.Blob)
 	if err != nil || !CompareDigest(digest, data.Digest){
-		return false
+		return err
 	}
 
-	return true
+	return nil
 }
 
 //Compare calculated digest and digest received - may move to utils.go
